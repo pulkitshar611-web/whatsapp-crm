@@ -1,0 +1,513 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────
+
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique // e.g., "ADMIN", "COUNSELOR"
+  description String?
+  users       User[]
+  permissions RolePermission[]
+  menus       Menu[]
+
+  @@map("roles")
+}
+
+enum Status {
+  Active
+  Inactive
+}
+
+enum LeadPriority {
+  Low
+  Medium
+  High
+}
+
+enum ActivityStatus {
+  Success
+  Failed
+}
+
+model LeadStatus {
+  id    Int    @id @default(autoincrement())
+  name  String @unique // e.g., "New", "Qualified", "Converted"
+  color String? @default("#CBD5E1")
+  leads Lead[]
+
+  @@map("lead_statuses")
+}
+
+model Activity {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  leadId    Int?
+  action    String
+  details   String?  @db.Text
+  timestamp DateTime @default(now())
+
+  // Relations
+  user      User?    @relation(fields: [userId], references: [id])
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+
+  @@map("activities")
+}
+
+enum ChannelType {
+  WhatsApp
+  Facebook
+  Website
+  Instagram
+  Telegram
+}
+
+enum ChannelStatus {
+  Active
+  Inactive
+  Error
+}
+
+enum SubscriptionStatus {
+  Active
+  Expired
+  Suspended
+}
+
+enum RoutingType {
+  Country_Based @map("Country Based")
+  Round_Robin   @map("Round Robin")
+  Load_Based    @map("Load Based")
+  Weightage
+  Direct
+}
+
+enum RoutingStatus {
+  Active
+  Paused
+}
+
+// ─────────────────────────────────────────────────
+// CORE MODELS
+// ─────────────────────────────────────────────────
+
+model User {
+  id               Int                @id @default(autoincrement())
+  name             String
+  email            String             @unique
+  password         String
+  roleId           Int                @default(1)
+  status           Status             @default(Active)
+  country          String?            @default("India")
+  team             String?            @default("General")
+  client           String?            @default("Global Entity")
+  assignedChannels Int?               @default(0)
+  permissions      Json?              // Array of permission strings
+  refreshToken     String?            @db.Text
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  // Relations
+  role             Role               @relation(fields: [roleId], references: [id])
+  leads            Lead[]             @relation("AssignedTo")
+  activityLogs     ActivityLog[]
+  messageTemplates MessageTemplate[]
+  counselorNotes   CounselorNote[]
+  notifications    Notification[]
+  calls            Call[]
+  activities       Activity[]
+
+  @@map("users")
+}
+
+model Lead {
+  id             Int             @id @default(autoincrement())
+  name           String
+  country        String?
+  phone          String?
+  email          String?
+  program        String?
+  statusId       Int?
+  stage          String?         @default("New") // Legecy string stage for quick access
+  score          Int?            @default(0)
+  source         String?         @default("Website")
+  assignedTo     Int?
+  team           String?         @default("General")
+  priority       LeadPriority    @default(Medium)
+  followUpDate   DateTime?       // For counselor follow-up scheduling
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  // Relations
+  assignedUser   User?           @relation("AssignedTo", fields: [assignedTo], references: [id], onDelete: SetNull)
+  status         LeadStatus?     @relation(fields: [statusId], references: [id])
+  messages       Message[]
+  counselorNotes CounselorNote[]
+  calls          Call[]
+  activities     Activity[]
+
+  @@map("leads")
+}
+
+model Message {
+  id        Int      @id @default(autoincrement())
+  leadId    Int
+  channel   String?
+  message   String   @db.Text
+  sender    String?
+  isRead    Boolean  @default(false)
+  timestamp DateTime @default(now())
+
+  // Relations
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@map("messages")
+}
+
+model Call {
+  id          Int      @id @default(autoincrement())
+  leadId      Int
+  counselorId Int?
+  type        String?  @default("Outbound")
+  outcome     String?  @default("Pending")
+  callStatus  String   @default("Pending")
+  duration    Int?     @default(0)
+  notes       String?  @db.Text
+  date        String?
+  time        String?
+  createdAt   DateTime @default(now())
+
+  // Relations
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  counselor   User?    @relation(fields: [counselorId], references: [id], onDelete: SetNull)
+
+  @@map("calls")
+}
+
+model CounselorNote {
+  id        Int      @id @default(autoincrement())
+  leadId    Int
+  authorId  Int
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+
+  // Relations
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("counselor_notes")
+}
+
+// ─────────────────────────────────────────────────
+// COMMUNICATION MODELS
+// ─────────────────────────────────────────────────
+
+model Channel {
+  id           Int           @id @default(autoincrement())
+  name         String
+  number       String?
+  country      String?
+  webhook      String?
+  type         ChannelType
+  status       ChannelStatus @default(Active)
+  usage_count  Int?          @default(0)
+  lastActivity DateTime?
+  config       Json?
+  createdAt    DateTime      @default(now())
+
+  @@map("channels")
+}
+
+model MessageTemplate {
+  id             Int      @id @default(autoincrement())
+  name           String
+  content        String   @db.Text
+  category       String?
+  variable_count Int?     @default(0)
+  createdBy      Int?
+  createdAt      DateTime @default(now())
+
+  // Relations
+  user           User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@map("message_templates")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  message   String   @db.Text
+  status    String   @default("Unread")
+  createdAt DateTime @default(now())
+
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+// ─────────────────────────────────────────────────
+// SYSTEM / ADMIN MODELS
+// ─────────────────────────────────────────────────
+
+model ActivityLog {
+  id        Int            @id @default(autoincrement())
+  userId    Int?
+  action    String
+  module    String?
+  lead      String?        // Added for team leader notes context
+  details   String?        @db.Text
+  status    ActivityStatus @default(Success)
+  ip        String?
+  device    String?
+  timestamp DateTime       @default(now())
+
+  // Relations
+  user      User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("activity_logs")
+}
+
+model RoutingRule {
+  id        Int           @id @default(autoincrement())
+  name      String
+  team      String?
+  country   String?
+  counselor String?       // Counselor name or identifier (not FK, intentional)
+  type      RoutingType   @default(Round_Robin)
+  status    RoutingStatus @default(Active)
+  priority  Int?          @default(1)
+  createdAt DateTime      @default(now())
+
+  @@map("routing_rules")
+}
+
+model RolePermission {
+  id        Int      @id @default(autoincrement())
+  roleId    Int
+  module    String
+  canView   Boolean  @default(true)
+  canEdit   Boolean  @default(false)
+  canDelete Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // Relations
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, module])
+  @@map("role_permissions")
+}
+
+model Integration {
+  id        Int      @id @default(autoincrement())
+  name      String
+  type      String
+  url       String?
+  apiKey    String?
+  status    Status   @default(Active)
+  createdAt DateTime @default(now())
+
+  @@map("integrations")
+}
+
+// ─────────────────────────────────────────────────
+// BILLING / SUBSCRIPTION
+// ─────────────────────────────────────────────────
+
+model Subscription {
+  id             Int                @id @default(autoincrement())
+  clientName     String
+  plan           String
+  status         SubscriptionStatus @default(Active)
+  renewalDate    DateTime?          @db.Date
+  messagesCount  Int?               @default(0)
+  contactsCount  Int?               @default(0)
+  createdAt      DateTime           @default(now())
+
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────────────
+// SETTINGS & CONFIGURATION
+// ─────────────────────────────────────────────────
+
+model AiConfig {
+  id           Int      @id @default(1)
+  flow         Json?
+  threshold    Int      @default(75)
+  enabled      Boolean  @default(true)
+  rules        Json?
+  scoringRules Json?
+  updatedAt    DateTime @updatedAt
+
+  @@map("ai_config")
+}
+
+model WorkingHours {
+  id        Int      @id @default(autoincrement())
+  day       String   @unique
+  active    Boolean  @default(true)
+  startTime String   @default("09:00")
+  endTime   String   @default("18:00")
+  updatedAt DateTime @updatedAt
+
+  @@map("working_hours")
+}
+
+model SecuritySetting {
+  id             Int      @id @default(1)
+  force2FA       Boolean  @default(true)
+  sessionTimeout String   @default("60 mins")
+  passwordExpiry String   @default("90 days")
+  updatedAt      DateTime @updatedAt
+
+  @@map("security_settings")
+}
+
+// ─────────────────────────────────────────────────
+// DASHBOARD SNAPSHOTS (used for historical tracking)
+// ─────────────────────────────────────────────────
+
+model SuperAdminDashboard {
+  id             Int      @id @default(autoincrement())
+  totalClients   Int      @default(0)
+  totalLeads     Int      @default(0)
+  totalRevenue   Float    @default(0)
+  activeChannels Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@map("super_admin_dashboard")
+}
+
+model AdminDashboard {
+  id                Int      @id @default(autoincrement())
+  connectedWhatsapp Int      @default(0)
+  facebookPages     Int      @default(0)
+  websiteLeads      Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  @@map("admin_dashboard")
+}
+
+model ManagerDashboard {
+  id             Int      @id @default(autoincrement())
+  leadsToday     Int      @default(0)
+  qualifiedLeads Int      @default(0)
+  convertedLeads Int      @default(0)
+  enrolledLeads  Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@map("manager_dashboard")
+}
+
+model TeamLeaderDashboard {
+  id              Int      @id @default(autoincrement())
+  teamLeads       Int      @default(0)
+  pendingReplies  Int      @default(0)
+  slaBreaches     Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  @@map("team_leader_dashboard")
+}
+
+model CounselorPerformance {
+  id            Int      @id @default(autoincrement())
+  counselorName String
+  replies       Int      @default(0)
+  conversions   Int      @default(0)
+  avgResponse   String   @default("0m")
+  createdAt     DateTime @default(now())
+
+  @@map("counselor_performance")
+}
+
+model CounselorDashboard {
+  id            Int      @id @default(autoincrement())
+  assignedLeads Int      @default(0)
+  followUps     Int      @default(0)
+  stageUpdates  Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@map("counselor_dashboard")
+}
+
+model SupportDashboard {
+  id            Int      @id @default(autoincrement())
+  openTickets   Int      @default(0)
+  newMessages   Int      @default(0)
+  assignedChats Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@map("support_dashboard")
+}
+
+model Template {
+  id          Int      @id @default(autoincrement())
+  publicId    String   @unique @default(cuid())
+  name        String
+  type        String   @default("Daily")
+  tasks       Int      @default(0)
+  duration    String
+  description String?  @default("")
+  taskList    Json?    
+  createdBy   String   @default("System")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Rota {
+  id          Int      @id @default(autoincrement())
+  publicId    String   @unique @default(cuid())
+  date        String
+  teamMember  String
+  serviceUser String
+  shiftTime   String
+  shiftStart  String
+  shiftEnd    String
+  location    String   @default("")
+  notes       String?  @default("")
+  status      String   @default("Scheduled")
+  createdBy   String   @default("System")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+
+model Menu {
+  id        Int       @id @default(autoincrement())
+  label     String
+  icon      String    // Lucide icon name string
+  path      String?   // Null if top-level parent with submenus
+  roleId    Int       @default(1)
+  order     Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  // Relations
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  submenus  Submenu[]
+}
+
+model Submenu {
+  id        Int      @id @default(autoincrement())
+  label     String
+  path      String
+  menuId    Int
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  menu      Menu     @relation(fields: [menuId], references: [id], onDelete: Cascade)
+}
