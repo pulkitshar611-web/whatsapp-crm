@@ -10,7 +10,7 @@ const server = http.createServer(app);
 // Socket.io Setup
 const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',')
-  : ['http://localhost:3000'];
+  : ['https://whatsapp-crm.wenbear.online'];
 
 const io = new Server(server, {
     cors: {
@@ -63,7 +63,7 @@ app.set('io', io);
 
 server.listen(PORT, () => {
     console.log(`✅ CRM Server running on port ${PORT}`);
-    console.log(`🔗 Frontend: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+    console.log(`🔗 Frontend: ${process.env.FRONTEND_URL || 'https://whatsapp-crm.wenbear.online'}`);
     console.log(`📡 Socket.io: Active`);
 });
 
