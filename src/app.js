@@ -10,7 +10,7 @@ const app = express();
 // Middlewares
 const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',')
-  : ['http://localhost:3000'];
+  : ['https://whatsapp-crm.wenbear.online'];
 
 app.use(cors({
     origin: function (origin, callback) {
